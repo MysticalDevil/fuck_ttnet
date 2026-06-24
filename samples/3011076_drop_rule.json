@@ -1,0 +1,27 @@
+{
+  "data": {
+    "ttnet_dispatch_actions": [
+      {
+        "act_priority": 1,
+        "action": "tc",
+        "param": {
+          "contain_group": [
+            "/"
+          ],
+          "drop": 1,
+          "drop_reason": 2,
+          "host_group": [
+            "*"
+          ],
+          "possibility": 100,
+          "service_name": "drop flow"
+        },
+        "rule_id": 3011076,
+        "sign": "3011076"
+      }
+    ],
+    "ttnet_dispatch_actions_epoch": 1,
+    "ttnet_url_dispatcher_enabled": 1
+  },
+  "message": "mechanism sample"
+}

@@ -3,4 +3,4 @@ name=Fuck TTNet
 version=v1.0.2
 versionCode=3
 author=omega
-description=Remove TikTok TTNet global drop flow rule 3011076 from cached TTNet config.
+description=Fix TikTok TTNet 3011076 no-network drops: ERR_TTNET_TRAFFIC_CONTROL_DROP / -555.

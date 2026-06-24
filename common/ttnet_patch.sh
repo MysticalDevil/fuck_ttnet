@@ -1,11 +1,11 @@
 #!/system/bin/sh
 
-PKG="com.zhiliaoapp.musically"
-APP_DIR="/data/data/$PKG"
-FILES_DIR="$APP_DIR/files"
-SERVER_JSON="$FILES_DIR/server.json"
-TT_NET_CONFIG="$FILES_DIR/tt_net_config.config"
-LOG_FILE="$MODDIR/fuck_ttnet.log"
+PKG="${PKG:-com.zhiliaoapp.musically}"
+APP_DIR="${APP_DIR:-/data/data/$PKG}"
+FILES_DIR="${FILES_DIR:-$APP_DIR/files}"
+SERVER_JSON="${SERVER_JSON:-$FILES_DIR/server.json}"
+TT_NET_CONFIG="${TT_NET_CONFIG:-$FILES_DIR/tt_net_config.config}"
+LOG_FILE="${LOG_FILE:-$MODDIR/fuck_ttnet.log}"
 
 log_msg() {
   now="$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null)"
@@ -99,8 +99,8 @@ patch_server_json() {
   out="$SERVER_JSON.fuck_ttnet.out.$$"
 
   sed -E \
-    -e 's#,\{"act_priority":[0-9]+,"action":"tc","param":\{"contain_group":\["\\/"\],"drop":1,"drop_reason":2,"host_group":\["\*"\],"possibility":100,"service_name":"drop flow"\},"rule_id":3011076,"sign":"[0-9A-Fa-f]+"\}##g' \
-    -e 's#\{"act_priority":[0-9]+,"action":"tc","param":\{"contain_group":\["\\/"\],"drop":1,"drop_reason":2,"host_group":\["\*"\],"possibility":100,"service_name":"drop flow"\},"rule_id":3011076,"sign":"[0-9A-Fa-f]+"\},##g' \
+    -e 's#,\{"act_priority":[0-9]+,"action":"tc","param":\{"contain_group":\["(\\/|/)"\],"drop":1,"drop_reason":2,"host_group":\["\*"\],"possibility":100,"service_name":"drop flow"\},"rule_id":3011076,"sign":"[0-9A-Fa-f]+"\}##g' \
+    -e 's#\{"act_priority":[0-9]+,"action":"tc","param":\{"contain_group":\["(\\/|/)"\],"drop":1,"drop_reason":2,"host_group":\["\*"\],"possibility":100,"service_name":"drop flow"\},"rule_id":3011076,"sign":"[0-9A-Fa-f]+"\},##g' \
     "$SERVER_JSON" > "$out" 2>> "$LOG_FILE" || {
     log_msg "sed patch failed for server.json"
     rm -f "$out" 2>/dev/null
