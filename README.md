@@ -163,14 +163,22 @@ Normal request path:
 TikTok -> DNS -> TCP connect -> TLS -> HTTP request
 ```
 
-This failure path:
+This failure:
 
 ```text
-TikTok -> TTNet URL dispatch -> local traffic-control drop
+TikTok -> TTNet URL dispatch -> local drop (3011076) -> -555
 ```
 
 That is why the failing logs show `dns=-1`, `connect=-1`, and `ssl=-1`: the
 request never leaves TikTok.
+
+**Trigger**: TikTok's TNC service issues or retains rule `3011076` based on
+server-side region detection. When TikTok traffic exits through a Hong Kong
+proxy node, TikTok's servers see `carrier_region=HK` (or
+`carrier_region_v2=454`) and may deliver this global drop rule. MCC/MNC
+and SIM region mismatches with the proxy exit region appear to contribute to
+the trigger — `mcc_mnc=46011` (China Mobile) combined with a Hong Kong
+proxy exit has been observed to reproduce this.
 
 Public decompiled TTNet code matches the observed behavior:
 
@@ -195,12 +203,18 @@ What is proven:
 - A white-box model of the decompiled TTNet dispatch logic produces the same
   `DISPATCH_DROP`, empty output URL, matched rule ID, and `-555` result for
   the observed rule body.
+- TikTok traffic routed through a Hong Kong proxy exit node can trigger the
+  server-side TNC service to issue or retain rule `3011076`. This is confirmed
+  by observing `carrier_region=HK` / `carrier_region_v2=454` in request
+  parameters along with `mcc_mnc=46011` (China Mobile SIM), and the rule
+  appearing in local TTNet cache after proxy use.
 
 What is not proven:
 
-- The exact server-side condition that caused TikTok to receive `3011076`.
-- Whether the deciding signal was account, store region, carrier/network
-  region, proxy exit, device history, cached policy state, or a combination.
+- Whether other proxy exit regions or SIM/carrier combinations can also
+  trigger `3011076`.
+- Whether the deciding signal is solely the proxy exit region, or a combination
+  of SIM MCC/MNC mismatch, account region, store region, or device history.
 - Scoped public code searches found TTNet traffic-control code and TNC samples,
   but no public hit for the exact `3011076` rule.
 

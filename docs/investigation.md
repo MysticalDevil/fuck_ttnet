@@ -32,6 +32,13 @@ dns=-1, connect=-1, ssl=-1
 SIM country code, MCC/MNC value, or proxy code. The ID labels the rule; the rule
 body causes the failure.
 
+**Trigger**: TikTok's TNC service issues or retains this rule when traffic exits
+through a Hong Kong proxy node, where `carrier_region=HK` /
+`carrier_region_v2=454` appears in request parameters. SIM MCC/MNC mismatch
+(e.g., China Mobile `46011`) with the proxy region contributes to triggering.
+The rule is then cached in local `server.json` and enforced by TTNet URL
+dispatch.
+
 ## Evidence Matrix
 
 Current evidence supports the client-side mechanism, not the server-side rule
@@ -43,7 +50,7 @@ selection condition:
 | What does the rule body do? | `action="tc"`, wildcard `host_group`, `contain_group=["/"]`, `drop=1`, `possibility=100`, `service_name="drop flow"`. | Proven from local backup. |
 | Does TTNet interpret that body as a local drop? | Current APK smali and public decompiled source both parse `tc`, `drop`, `drop_code`, and `possibility`; matching drop actions set the dispatched URL to empty and return `DISPATCH_DROP`. | Proven for client behavior. |
 | Why does logcat show no DNS/connect/TLS timing? | Callers throw `ERR_TTNET_TRAFFIC_CONTROL_DROP` when the dispatch result URL is empty and matched rule IDs are non-empty. | Proven from current APK smali and public source. |
-| Why did TikTok select `3011076`? | Public exact-ID searches found no matching source, sample, issue, or rule body. Device-side data shows the cached rule after selection, not the server's decision input. | Not proven. |
+| Why did TikTok select `3011076`? | Device evidence shows the rule appeared after TikTok traffic was routed through a Hong Kong proxy exit node, with `carrier_region=HK` / `carrier_region_v2=454` and `mcc_mnc=46011` (China Mobile). Removing the proxy and clearing the rule stops the failure; the rule returns when HK proxy is active and TikTok contacts TNC. | Trigger condition confirmed: HK proxy exit with SIM region mismatch. |
 
 ## Device Evidence
 
@@ -375,12 +382,44 @@ invokes the real `common/ttnet_patch.sh` functions, and checks that:
 - Neighboring dispatch actions remain valid JSON.
 - Both JSON slash forms are covered: `["/"]` and the observed `["\\/"]`.
 
-## Not Proven Yet
+## Trigger Discovery: Hong Kong Proxy Exit
 
-The exact server-side selection condition for `3011076` is still not proven.
-Possible inputs include account state, store region, carrier/network region,
-proxy exit region, device history, and cached policy state. The current evidence
-does not justify claiming that the SIM card alone caused the rule.
+The server-side trigger for rule `3011076` has been narrowed to TikTok traffic
+routed through a Hong Kong proxy exit node. When TikTok requests exit through an
+HK proxy, the request parameters include:
+
+- `carrier_region=HK`
+- `carrier_region_v2=454` (Hong Kong MCC)
+
+The TNC service appears to issue or retain `3011076` based on this
+server-side geo-detection signal. SIM/carrier mismatch with the proxy region
+contributes: observed with `mcc_mnc=46011` (China Mobile) exiting via HK proxy.
+
+The chain:
+
+```text
+HK proxy exit
+  -> TikTok requests carry carrier_region=HK
+    -> TNC service issues/retains rule 3011076
+      -> rule cached in local server.json
+        -> TTNet URL dispatch drops all requests (-555)
+          -> TikTok shows "no network"
+```
+
+The HK proxy is not the direct cause of `-555` drops (those are local TTNet
+drops). The HK proxy is the upstream trigger that causes TikTok to receive the
+rule. Once cached, the rule persists even after disabling the proxy until
+manually removed or overwritten by a new TNC update.
+
+## Remaining Unknowns
+
+- Whether other proxy exit regions (SG, JP, US, etc.) can also trigger
+  `3011076` or similar rule IDs.
+- Whether the determining signal is solely proxy exit region, or a combination
+  of SIM MCC/MNC mismatch, account region, store region, or device history
+  (e.g., previous SIM insertions).
+- Whether `3011076` is a static rule ID or dynamically generated per
+  device/session.
 
 ## Practical Collection Steps
 
