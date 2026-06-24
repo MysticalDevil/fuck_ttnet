@@ -72,7 +72,7 @@ SELinux context with `restorecon`.
 
 ## Install
 
-Install `fuck_ttnet-v1.0.0.zip` in KernelSU Manager and reboot.
+Install `fuck_ttnet-v1.0.1.zip` in KernelSU Manager and reboot.
 
 After reboot, force-stop and reopen TikTok:
 
