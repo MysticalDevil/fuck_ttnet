@@ -76,6 +76,55 @@ print status. It reports rule hit counts before and after patching.
 Disable or uninstall the module from KernelSU Manager when it is no longer
 needed.
 
+## Manual Fix
+
+The module does not hook TikTok or spoof the device. Its logic is intentionally
+small:
+
+1. Wait until TikTok data exists.
+2. Back up the target files once with the `.fuck_ttnet.bak` suffix.
+3. Remove the exact global `3011076` drop action from `server.json`.
+4. Remove `3011076` from the dispatch rule-ID list in `tt_net_config.config`.
+5. Restore TikTok file owner, mode `0600`, and SELinux context.
+
+If you do not want to install the module, you can apply the same fix manually
+with root. First force-stop TikTok and back up the files:
+
+```sh
+adb shell am force-stop com.zhiliaoapp.musically
+adb shell su -c 'cd /data/data/com.zhiliaoapp.musically/files &&
+  cp server.json server.json.manual.bak 2>/dev/null;
+  cp tt_net_config.config tt_net_config.config.manual.bak 2>/dev/null'
+```
+
+Then remove only the known bad rule:
+
+- In `server.json`, delete the complete JSON object whose `rule_id` is
+  `3011076` and whose body contains `action="tc"`, `service_name="drop flow"`,
+  `host_group=["*"]`, `contain_group=["/"]`, `drop=1`, and
+  `possibility=100`.
+- In `tt_net_config.config`, remove `3011076` from the cached `dispatch:` rule
+  list if it is present.
+
+After editing, fix ownership/context and restart TikTok:
+
+```sh
+adb shell su -c 'ls -ldn /data/data/com.zhiliaoapp.musically/files'
+```
+
+Use the numeric owner/group shown by `ls -ldn` for `APP_UID:APP_GID` below:
+
+```sh
+adb shell su -c 'cd /data/data/com.zhiliaoapp.musically/files &&
+  chown APP_UID:APP_GID server.json tt_net_config.config 2>/dev/null;
+  chmod 600 server.json tt_net_config.config 2>/dev/null;
+  restorecon server.json tt_net_config.config 2>/dev/null'
+adb shell am force-stop com.zhiliaoapp.musically
+```
+
+Do not delete unrelated TTNet rules. Do not publish full TTNet config files
+without removing private account, token, cookie, or device identifiers.
+
 Module log:
 
 ```text

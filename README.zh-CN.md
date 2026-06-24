@@ -73,6 +73,53 @@ adb shell am force-stop com.zhiliaoapp.musically
 
 不再需要时，可以直接在 KernelSU Manager 中禁用或卸载模块。
 
+## 手动修复
+
+这个模块不 hook TikTok，也不伪装设备。它的逻辑很小：
+
+1. 等待 TikTok 数据目录存在。
+2. 给目标文件创建一次 `.fuck_ttnet.bak` 备份。
+3. 从 `server.json` 删除完整的 `3011076` 全局 drop action。
+4. 从 `tt_net_config.config` 的 dispatch rule-ID 列表里删除 `3011076`。
+5. 恢复 TikTok 文件 owner、`0600` 权限和 SELinux context。
+
+如果不想安装模块，也可以用 root 手动做同样的修复。先强制停止 TikTok 并备份：
+
+```sh
+adb shell am force-stop com.zhiliaoapp.musically
+adb shell su -c 'cd /data/data/com.zhiliaoapp.musically/files &&
+  cp server.json server.json.manual.bak 2>/dev/null;
+  cp tt_net_config.config tt_net_config.config.manual.bak 2>/dev/null'
+```
+
+然后只删除已知的坏规则：
+
+- 在 `server.json` 里，删除完整 JSON object：它的 `rule_id` 是 `3011076`，
+  并且包含 `action="tc"`、`service_name="drop flow"`、
+  `host_group=["*"]`、`contain_group=["/"]`、`drop=1`、
+  `possibility=100`。
+- 在 `tt_net_config.config` 里，如果缓存的 `dispatch:` 规则 ID 列表包含
+  `3011076`，只把这个 ID 从列表中删除。
+
+编辑后恢复 owner/context，再重启 TikTok：
+
+```sh
+adb shell su -c 'ls -ldn /data/data/com.zhiliaoapp.musically/files'
+```
+
+把 `ls -ldn` 输出里的数字 owner/group 填到下面的 `APP_UID:APP_GID`：
+
+```sh
+adb shell su -c 'cd /data/data/com.zhiliaoapp.musically/files &&
+  chown APP_UID:APP_GID server.json tt_net_config.config 2>/dev/null;
+  chmod 600 server.json tt_net_config.config 2>/dev/null;
+  restorecon server.json tt_net_config.config 2>/dev/null'
+adb shell am force-stop com.zhiliaoapp.musically
+```
+
+不要删除无关 TTNet 规则。不要公开完整 TTNet 配置文件，除非已经移除账号、
+token、cookie、设备标识等隐私字段。
+
 模块日志：
 
 ```text
