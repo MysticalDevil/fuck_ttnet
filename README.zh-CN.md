@@ -70,7 +70,7 @@ tt_net_config.config.fuck_ttnet.bak
 
 ## 安装
 
-在 KernelSU Manager 中安装 `fuck_ttnet-v1.0.1.zip`，然后重启设备。
+在 KernelSU Manager 中安装 `fuck_ttnet-v1.0.2.zip`，然后重启设备。
 
 重启后，强制停止 TikTok 再重新打开：
 
