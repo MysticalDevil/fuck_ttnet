@@ -67,11 +67,71 @@ pid_for_tiktok() {
 }
 
 default_network_validated() {
-  if dumpsys connectivity 2>/dev/null | grep -q 'Capabilities: .*VALIDATED'; then
-    printf 'yes'
-  else
-    printf 'no'
+  connectivity_dump="$(dumpsys connectivity 2>/dev/null)"
+
+  if [ -z "$connectivity_dump" ]; then
+    printf 'unknown'
+    return
   fi
+
+  if printf '%s\n' "$connectivity_dump" | grep -Eq 'Active default network:[[:space:]]*(none|None|null)|No active default network'; then
+    printf 'no'
+    return
+  fi
+
+  active_id="$(
+    printf '%s\n' "$connectivity_dump" |
+      sed -n 's/.*Active default network:[[:space:]]*\([0-9][0-9]*\).*/\1/p' |
+      head -n 1
+  )"
+
+  if [ -n "$active_id" ]; then
+    active_block="$(
+      printf '%s\n' "$connectivity_dump" |
+        awk -v id="$active_id" '
+          BEGIN {
+            capture = 0
+            found = 0
+          }
+
+          /NetworkAgentInfo/ {
+            if (capture) {
+              exit
+            }
+            if (match($0, "(^|[^0-9])" id "([^0-9]|$)")) {
+              capture = 1
+              found = 1
+            }
+          }
+
+          capture {
+            print
+          }
+
+          END {
+            if (!found) {
+              exit 1
+            }
+          }
+        ' 2>/dev/null || true
+    )"
+
+    if [ -n "$active_block" ]; then
+      if printf '%s\n' "$active_block" | grep -q 'VALIDATED'; then
+        printf 'yes'
+      else
+        printf 'no'
+      fi
+      return
+    fi
+  fi
+
+  if printf '%s\n' "$connectivity_dump" | grep -q 'Capabilities: .*VALIDATED'; then
+    printf 'yes'
+    return
+  fi
+
+  printf 'unknown'
 }
 
 collect_logcat() {
@@ -185,15 +245,6 @@ elif [ "$recent_tls_error_count" -gt 0 ] 2>/dev/null; then
   repairability="limited"
   summary="TikTok is reaching TLS and failing with ERR_CERT_AUTHORITY_INVALID / -202."
   recommended_action="Treat this as a proxy, CA trust, or network-path problem. A local cache reset may help, but patching 3011076 will not."
-elif [ "$recent_ui_signal_count" -gt 0 ] 2>/dev/null; then
-  status="warning"
-  diagnosis_id="ui_only_generic_or_region_unavailable"
-  diagnosis_title="Generic UI No-Network or Region Block"
-  transport_stage="app_or_server_policy"
-  repair_action="none"
-  repairability="unsupported"
-  summary="TikTok shows a generic no-network or region-unavailable UI string without a stronger local TTNet signature."
-  recommended_action="Capture a fresh launch trace and verify whether this is region policy, market withdrawal, or another server-side restriction."
 elif [ "$network_validated" = "no" ]; then
   status="warning"
   diagnosis_id="device_network_unvalidated"
@@ -203,6 +254,15 @@ elif [ "$network_validated" = "no" ]; then
   repairability="unsupported"
   summary="Android does not currently consider the default network validated for internet access."
   recommended_action="Fix Wi-Fi, captive portal, DNS, or proxy health first. TikTok-specific repair is secondary until the device network is validated."
+elif [ "$recent_ui_signal_count" -gt 0 ] 2>/dev/null; then
+  status="warning"
+  diagnosis_id="ui_only_generic_or_region_unavailable"
+  diagnosis_title="Generic UI No-Network or Region Block"
+  transport_stage="app_or_server_policy"
+  repair_action="none"
+  repairability="unsupported"
+  summary="TikTok shows a generic no-network or region-unavailable UI string without a stronger local TTNet signature."
+  recommended_action="Capture a fresh launch trace and verify whether this is region policy, market withdrawal, or another server-side restriction."
 elif [ "$config_hits" -gt 0 ] 2>/dev/null || [ "$keva_tnc_hits" -gt 0 ] 2>/dev/null || [ "$keva_multi_hits" -gt 0 ] 2>/dev/null; then
   status="dirty"
   diagnosis_id="cached_ttnet_metadata"
