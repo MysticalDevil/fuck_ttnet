@@ -1,21 +1,41 @@
-# Fuck TTNet: TikTok TTNet 3011076 Network Fix
+# Fuck TTNet: TikTok No-Network Diagnostics and Local TTNet Repair
 
-Targeted KernelSU module for TikTok international edition no-network failures
-caused by TTNet rule `3011076`, `ERR_TTNET_TRAFFIC_CONTROL_DROP`, and
-`InternalErrorCode=-555`.
+KernelSU module for diagnosing multiple TikTok international edition
+no-network classes, with strong local repair support for cached TTNet rule
+`3011076` / `ERR_TTNET_TRAFFIC_CONTROL_DROP` / `InternalErrorCode=-555`.
 
 [中文文档](README.zh-CN.md)
 
 Detailed investigation: [docs/investigation.md](docs/investigation.md)
 
+Broader no-network case map: [docs/no-network-cases.md](docs/no-network-cases.md)
+
 Search terms: TikTok no network, TikTok TTNet 3011076, TTNet traffic control
 drop, `ERR_TTNET_TRAFFIC_CONTROL_DROP`, `InternalErrorCode=-555`,
 `DISPATCH_DROP`, `com.zhiliaoapp.musically`.
 
+Important: this repository now treats diagnosis as the primary job. Current
+local repair coverage is:
+
+- strong support: cached local TTNet dispatch drop (`3011076`, `-555`)
+- limited support: volatile runtime cache reset for transport failures such as
+  `ERR_CERT_AUTHORITY_INVALID` / `-202`
+- no local fix: device network validation failures, region unavailability, or
+  server-side region policy
+
+See the broader case map above before assuming every failure is `3011076`.
+
 ## Module Purpose
 
-Fuck TTNet removes a cached TTNet traffic-control rule that makes TikTok drop
-requests locally before DNS, TCP, or TLS starts.
+Fuck TTNet is a diagnosis-first module. It tells you whether the current
+TikTok "no network" state looks like:
+
+- a local TTNet drop that the module can repair
+- a TLS/proxy trust failure that the module can only reset around
+- a device or server-side issue that needs work outside the module
+
+Its strongest supported repair is still the cached TTNet traffic-control rule
+that makes TikTok drop requests locally before DNS, TCP, or TLS starts.
 
 Target package:
 
@@ -62,6 +82,10 @@ Build a module zip from this repo:
 scripts/package.sh
 ```
 
+WebUI frontend source now lives under `frontend/` and is built with Vite 8 +
+TypeScript. The generated static files are written to `webroot/`, and
+`scripts/package.sh` runs `pnpm build` automatically before packing.
+
 Install the module zip in KernelSU Manager and reboot.
 
 After boot, force-stop and reopen TikTok:
@@ -70,16 +94,38 @@ After boot, force-stop and reopen TikTok:
 adb shell am force-stop com.zhiliaoapp.musically
 ```
 
-If the manager supports module actions, run the action manually to patch and
-print status. It reports rule hit counts before and after patching.
+Open the module WebUI from KernelSU Manager. That is now the primary entry
+point. It shows:
+
+- diagnosis ID and transport stage
+- whether Android currently sees the default network as validated
+- local TTNet rule hits and cached metadata
+- recent `-555`, `-202`, and generic UI no-network signals
+- module logs and region signals observed in TikTok logs
+
+WebUI actions:
+
+- `Refresh`: read the current TTNet state.
+- `Attempt Repair`: run the diagnosis-specific local action.
+- `Force Stop TikTok`: restart TikTok's in-memory TTNet state after patching.
+- `Copy Diagnostics`: copy a redacted status report.
+
+Current repair actions:
+
+- `patch_local_ttnet`: remove cached `3011076` metadata and stop TikTok
+- `reset_runtime_cache`: clear volatile runtime cache and stop TikTok
+- `none`: no supported local repair for the current diagnosis
+
+The intended workflow is through WebUI only; the module no longer exposes a
+separate KernelSU action entrypoint.
 
 Disable or uninstall the module from KernelSU Manager when it is no longer
 needed.
 
-## Manual Fix
+## Local Repair Logic
 
-The module does not hook TikTok or spoof the device. Its logic is intentionally
-small:
+The module does not hook TikTok or spoof the device. The repair logic is kept
+small and explicit:
 
 1. Wait until TikTok data exists.
 2. Back up the target files once with the `.fuck_ttnet.bak` suffix.
@@ -87,8 +133,8 @@ small:
 4. Remove `3011076` from the dispatch rule-ID list in `tt_net_config.config`.
 5. Restore TikTok file owner, mode `0600`, and SELinux context.
 
-If you do not want to install the module, you can apply the same fix manually
-with root. First force-stop TikTok and back up the files:
+For the supported `3011076` case, you can apply the same fix manually with
+root. First force-stop TikTok and back up the files:
 
 ```sh
 adb shell am force-stop com.zhiliaoapp.musically
@@ -139,8 +185,8 @@ adb logcat -d -v time |
   grep -E 'ERR_TTNET|TRAFFIC_CONTROL|InternalErrorCode=-555|http code=200'
 ```
 
-Use this module only when TikTok shows no network while the device network
-works and logcat contains the TTNet local-drop signature:
+Use the local TTNet repair only when TikTok shows no network while the device
+network works and logcat contains the TTNet local-drop signature:
 
 ```text
 ERR_TTNET_TRAFFIC_CONTROL_DROP
@@ -148,10 +194,11 @@ InternalErrorCode=-555
 dns=-1, connect=-1, ssl=-1
 ```
 
-If the error is DNS failure, TLS failure, proxy failure, Android network policy,
-or an HTTP response from TikTok servers, this module is not the right fix.
+If the error is device-network validation failure, TLS failure, proxy failure,
+Android network policy, or an HTTP response from TikTok servers, the `3011076`
+repair is not the right fix.
 
-## Why It Happens
+## Why The 3011076 Repair Exists
 
 TTNet is TikTok's in-app network stack. It loads runtime TNC configuration from
 local cache and applies URL dispatch actions before a request reaches the
@@ -172,13 +219,16 @@ TikTok -> TTNet URL dispatch -> local drop (3011076) -> -555
 That is why the failing logs show `dns=-1`, `connect=-1`, and `ssl=-1`: the
 request never leaves TikTok.
 
-**Trigger**: TikTok's TNC service issues or retains rule `3011076` based on
-server-side region detection. When TikTok traffic exits through a Hong Kong
-proxy node, TikTok's servers see `carrier_region=HK` (or
-`carrier_region_v2=454`) and may deliver this global drop rule. MCC/MNC
-and SIM region mismatches with the proxy exit region appear to contribute to
-the trigger — `mcc_mnc=46011` (China Mobile) combined with a Hong Kong
-proxy exit has been observed to reproduce this.
+What is still uncertain is the upstream trigger that makes TikTok issue or
+retain `3011076`. Earlier debugging treated Hong Kong proxy exit and
+SIM-region mismatch as a likely cause, but the later evidence base is mixed and
+that explanation is not strong enough to present as a rule. A safer statement
+is:
+
+- `3011076` is a server-delivered TTNet/TNC dispatch rule ID
+- once that rule is cached locally, TTNet can enforce it offline as a local
+  `-555` drop
+- the module only repairs that local cached symptom
 
 Public decompiled TTNet code matches the observed behavior:
 
@@ -203,11 +253,10 @@ What is proven:
 - A white-box model of the decompiled TTNet dispatch logic produces the same
   `DISPATCH_DROP`, empty output URL, matched rule ID, and `-555` result for
   the observed rule body.
-- TikTok traffic routed through a Hong Kong proxy exit node can trigger the
-  server-side TNC service to issue or retain rule `3011076`. This is confirmed
-  by observing `carrier_region=HK` / `carrier_region_v2=454` in request
-  parameters along with `mcc_mnc=46011` (China Mobile SIM), and the rule
-  appearing in local TTNet cache after proxy use.
+- The exact upstream decision path that leads to `3011076` is still unresolved.
+- Hong Kong region behavior, server-side region policy, proxy exit, SIM
+  signals, and device history may all matter, but the repository should not
+  present any one of them as the settled trigger without stronger evidence.
 
 What is not proven:
 
@@ -217,6 +266,12 @@ What is not proven:
   of SIM MCC/MNC mismatch, account region, store region, or device history.
 - Scoped public code searches found TTNet traffic-control code and TNC samples,
   but no public hit for the exact `3011076` rule.
+
+One more class is now proven locally on the same device and should not be
+confused with `3011076`: `net::ERR_CERT_AUTHORITY_INVALID` with
+`InternalErrorCode=-202`. In that case TTNet/Cronet reaches the TLS stage and
+rejects the certificate chain; this module does not fix it. See
+[docs/no-network-cases.md](docs/no-network-cases.md).
 
 ## White-Box Mechanism Check
 
@@ -248,9 +303,9 @@ scripts/search_public_evidence.sh
 ## Scope And Limits
 
 - Only TikTok international edition is targeted.
-- Only the known `3011076` global drop flow is removed.
-- TikTok may rewrite TTNet config after launch, so the service script checks
-  repeatedly in the background.
+- The strongest supported repair is still the known `3011076` global drop flow.
+- The module now runs in passive mode; diagnosis and repair are driven from
+  WebUI instead of background auto-patching.
 - If TikTok changes the rule ID or config format, the matcher may need an
   update.
 - If a request reaches TikTok servers and the server rejects it, this module

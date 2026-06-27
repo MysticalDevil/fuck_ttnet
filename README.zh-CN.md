@@ -1,21 +1,39 @@
-# Fuck TTNet：TikTok TTNet 3011076 无网络修复
+# Fuck TTNet：TikTok 无网络诊断与本地 TTNet 修复
 
-针对 TikTok 国际版因 TTNet 规则 `3011076`、
-`ERR_TTNET_TRAFFIC_CONTROL_DROP`、`InternalErrorCode=-555` 导致无网络的
-KernelSU 模块。
+用于诊断 TikTok 国际版多种“无网络”情况的 KernelSU 模块；其中对本地缓存的
+TTNet 规则 `3011076` / `ERR_TTNET_TRAFFIC_CONTROL_DROP` /
+`InternalErrorCode=-555` 提供最强的本地修复支持。
 
 [English README](README.md)
 
 详细调查文档：[docs/investigation.md](docs/investigation.md)
 
+更完整的无网络分类文档：[docs/no-network-cases.zh-CN.md](docs/no-network-cases.zh-CN.md)
+
 搜索关键词：TikTok 无网络、TikTok TTNet 3011076、TTNet traffic control
 drop、`ERR_TTNET_TRAFFIC_CONTROL_DROP`、`InternalErrorCode=-555`、
 `DISPATCH_DROP`、`com.zhiliaoapp.musically`。
 
+注意：这个仓库现在把“诊断”放在第一位。当前本地修复覆盖范围是：
+
+- 强支持：本地缓存的 TTNet dispatch drop（`3011076`、`-555`）
+- 有限支持：对 `ERR_CERT_AUTHORITY_INVALID` / `-202` 之类传输层故障做
+  runtime cache reset
+- 不支持本地修复：设备网络本身异常、区域停运、服务端区域策略
+
+不要把所有“无网络”都直接当成 `3011076`。具体分类见上面的总览文档。
+
 ## 模块作用
 
-Fuck TTNet 删除 TikTok 本地缓存里的一条 TTNet traffic-control 规则。这条
-规则会让 TikTok 在 DNS、TCP、TLS 之前就把请求本地丢弃。
+Fuck TTNet 是一个“诊断优先”的模块。它会先告诉你当前 TikTok 的“无网络”
+更像是哪一类：
+
+- 本地 TTNet drop，模块可以修
+- TLS / 代理信任链失败，模块只能做有限 reset
+- 设备层或服务端层问题，需要到模块外处理
+
+当前最强支持的修复，仍然是删除 TikTok 本地缓存里那条会让请求在 DNS、TCP、
+TLS 之前被本地丢弃的 TTNet traffic-control 规则。
 
 目标包名：
 
@@ -60,6 +78,10 @@ traffic-control drop，而且 DNS、connect、SSL 计时都还没有开始。
 scripts/package.sh
 ```
 
+现在 WebUI 前端源码位于 `frontend/`，使用 Vite 8 + TypeScript 构建。生成
+的静态文件会写入 `webroot/`，而 `scripts/package.sh` 会在打包前自动执行
+`pnpm build`。
+
 在 KernelSU Manager 中安装模块 zip，然后重启。
 
 重启后，强制停止 TikTok 再重新打开：
@@ -68,14 +90,34 @@ scripts/package.sh
 adb shell am force-stop com.zhiliaoapp.musically
 ```
 
-如果 KernelSU Manager 支持模块 action，可以手动运行一次 action。action 会
-打印修补前后的规则命中数量。
+从 KernelSU Manager 打开模块 WebUI。这现在是主入口。WebUI 会显示：
+
+- diagnosis ID 和传输阶段
+- Android 默认网络当前是否 `VALIDATED`
+- 本地 TTNet 规则命中和缓存元数据
+- 最近的 `-555`、`-202`、以及泛化 UI 无网络信号
+- 模块日志和从 TikTok 日志里观察到的地区信号
+
+WebUI 操作：
+
+- `Refresh`：读取当前 TTNet 状态。
+- `Attempt Repair`：按当前诊断结果执行对应的本地动作。
+- `Force Stop TikTok`：修复后重启 TikTok 进程内的 TTNet 状态。
+- `Copy Diagnostics`：复制脱敏后的诊断信息。
+
+当前修复动作有三类：
+
+- `patch_local_ttnet`：删除本地 `3011076` 元数据并停止 TikTok
+- `reset_runtime_cache`：清理易失 runtime cache 并停止 TikTok
+- `none`：当前诊断没有支持的本地修复
+
+模块现在只保留 WebUI 工作流，不再暴露单独的 KernelSU action 入口。
 
 不再需要时，可以直接在 KernelSU Manager 中禁用或卸载模块。
 
-## 手动修复
+## 本地修复逻辑
 
-这个模块不 hook TikTok，也不伪装设备。它的逻辑很小：
+这个模块不 hook TikTok，也不伪装设备。本地修复逻辑保持得很小、很明确：
 
 1. 等待 TikTok 数据目录存在。
 2. 给目标文件创建一次 `.fuck_ttnet.bak` 备份。
@@ -83,7 +125,8 @@ adb shell am force-stop com.zhiliaoapp.musically
 4. 从 `tt_net_config.config` 的 dispatch rule-ID 列表里删除 `3011076`。
 5. 恢复 TikTok 文件 owner、`0600` 权限和 SELinux context。
 
-如果不想安装模块，也可以用 root 手动做同样的修复。先强制停止 TikTok 并备份：
+如果当前诊断命中的是 `3011076`，也可以用 root 手动做同样的修复。先强制停止
+TikTok 并备份：
 
 ```sh
 adb shell am force-stop com.zhiliaoapp.musically
@@ -135,7 +178,7 @@ adb logcat -d -v time |
 ```
 
 只有在手机网络本身正常，但 TikTok 显示无网络，并且 logcat 出现下面这种
-TTNet 本地丢弃特征时，才适合使用：
+TTNet 本地丢弃特征时，才应该使用 `3011076` 本地修复：
 
 ```text
 ERR_TTNET_TRAFFIC_CONTROL_DROP
@@ -143,10 +186,10 @@ InternalErrorCode=-555
 dns=-1, connect=-1, ssl=-1
 ```
 
-如果实际错误是 DNS、TLS、代理、Android 网络策略，或者 TikTok 服务端返回的
-HTTP 错误，这个模块通常不是正确解法。
+如果实际错误是设备网络未通过校验、TLS、代理、Android 网络策略，或者 TikTok
+服务端返回的 HTTP 错误，那么 `3011076` 修复通常不是正确解法。
 
-## 为什么会出现
+## 为什么会有这个 3011076 修复
 
 TTNet 是 TikTok 应用内的网络栈。它会从本地缓存加载 TNC 运行时配置，并在
 请求进入普通网络流程前先执行 URL dispatch action。
@@ -166,11 +209,13 @@ TikTok -> TTNet URL dispatch -> local drop (3011076) -> -555
 所以失败日志里会看到 `dns=-1`、`connect=-1`、`ssl=-1`：请求根本没有离开
 TikTok 进程。
 
-**触发条件**：TikTok 的 TNC 服务根据服务端区域检测下发或保留规则
-`3011076`。当 TikTok 流量经过香港代理出口时，TikTok 服务端看到
-`carrier_region=HK`（或 `carrier_region_v2=454`），就可能下发这条全局丢弃
-规则。SIM 卡的 MCC/MNC 与代理出口区域不匹配会促成触发 — 已观察到
-`mcc_mnc=46011`（中国移动）配合香港代理出口会复现此问题。
+目前仍然不确定的是：TikTok 到底在什么上游条件下下发或保留 `3011076`。
+更早的排查曾把“香港代理出口 + SIM 区域不匹配”当成高概率触发条件，但后续
+证据并不足以把这个解释当成定论。更稳妥的说法是：
+
+- `3011076` 是一个服务端下发的 TTNet/TNC dispatch rule ID
+- 一旦这条规则已经缓存到本地，TTNet 就能在离线条件下继续执行本地 `-555` 丢弃
+- 当前模块修的只是这个“本地缓存后遗症”
 
 公开反编译的 TTNet 代码与这个现象一致：
 
@@ -192,10 +237,9 @@ SIM/MCC 代码，也不是代理代码。真正造成阻断的是规则内容：
 - 删除这条 action 后，TikTok 从本地 `-555` 丢弃变成真实网络响应。
 - 按公开反编译逻辑写出的白盒模型，对这条规则会得到同样的
   `DISPATCH_DROP`、空输出 URL、命中规则 ID 和 `-555`。
-- TikTok 流量经过香港代理出口可以触发服务端 TNC 下发或保留规则
-  `3011076`。已通过请求参数中 `carrier_region=HK` /
-  `carrier_region_v2=454` 配合 `mcc_mnc=46011`（中国移动SIM）并在使用代理
-  后本地 TTNet 缓存中出现该规则来确认。
+- 导致 `3011076` 出现的上游决策路径目前还没完全解开。
+- 香港地区行为、服务端区域策略、代理出口、SIM 信号、设备历史都可能参与，
+  但在没有更强证据前，不应把其中任何单一因素写成已经坐实的根因。
 
 尚未证明的部分：
 
@@ -204,6 +248,11 @@ SIM/MCC 代码，也不是代理代码。真正造成阻断的是规则内容：
   商店区域或设备历史的组合。
 - 限定范围的公开代码搜索找到了 TTNet traffic-control 代码和 TNC 样本，但没有
   找到公开的 `3011076` 精确命中。
+
+同一台设备上现在还本地证实了另一类不能和 `3011076` 混淆的问题：
+`net::ERR_CERT_AUTHORITY_INVALID` 配合 `InternalErrorCode=-202`。这类情况说明
+TTNet/Cronet 已经进入 TLS 阶段并在证书链校验时失败，当前模块对它无效。详见
+[docs/no-network-cases.zh-CN.md](docs/no-network-cases.zh-CN.md)。
 
 ## 白盒机制检查
 
@@ -233,7 +282,7 @@ scripts/search_public_evidence.sh
 ## 范围和限制
 
 - 只针对 TikTok 国际版。
-- 只删除已知的 `3011076` 全局 drop flow。
-- TikTok 启动后可能重写 TTNet 配置，所以 service 脚本会在后台重复检查。
+- 当前最强支持的本地修复仍然是已知的 `3011076` 全局 drop flow。
+- 模块现在运行在被动模式：诊断和修复都通过 WebUI 驱动，而不是后台自动改文件。
 - 如果 TikTok 修改规则 ID 或配置格式，匹配逻辑可能需要更新。
 - 如果请求已经到达 TikTok 服务端并被服务端拒绝，这个模块不能绕过服务端响应。
