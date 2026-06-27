@@ -101,6 +101,8 @@ patch_server_json() {
   sed -E \
     -e 's#,\{"act_priority":[0-9]+,"action":"tc","param":\{"contain_group":\["(\\/|/)"\],"drop":1,"drop_reason":2,"host_group":\["\*"\],"possibility":100,"service_name":"drop flow"\},"rule_id":3011076,"sign":"[0-9A-Fa-f]+"\}##g' \
     -e 's#\{"act_priority":[0-9]+,"action":"tc","param":\{"contain_group":\["(\\/|/)"\],"drop":1,"drop_reason":2,"host_group":\["\*"\],"possibility":100,"service_name":"drop flow"\},"rule_id":3011076,"sign":"[0-9A-Fa-f]+"\},##g' \
+    -e 's#,\{"param":\{"drop":1,"drop_reason":2,"host_group":\["\*"\],"possibility":100,"service_name":"drop flow","contain_group":\["(\\/|/)"\]\},"rule_id":3011076,"sign":"[0-9A-Fa-f]+","act_priority":[0-9]+,"action":"tc"\}##g' \
+    -e 's#\{"param":\{"drop":1,"drop_reason":2,"host_group":\["\*"\],"possibility":100,"service_name":"drop flow","contain_group":\["(\\/|/)"\]\},"rule_id":3011076,"sign":"[0-9A-Fa-f]+","act_priority":[0-9]+,"action":"tc"\},##g' \
     "$SERVER_JSON" > "$out" 2>> "$LOG_FILE" || {
     log_msg "sed patch failed for server.json"
     rm -f "$out" 2>/dev/null
