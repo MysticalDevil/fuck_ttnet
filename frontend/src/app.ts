@@ -3,21 +3,25 @@ import { parseStatusOutput, wait } from "./diagnostics";
 import { getById } from "./dom";
 import { execCommand, toast } from "./ksu";
 import { DiagnosticsRenderer } from "./renderer";
+import { SerialTaskQueue } from "./serial-task-queue";
 import type { LogTabName } from "./types";
 
 export class DiagnosticsApp {
   private autoRefreshTimer: number | null = null;
+  private refreshPromise: Promise<void> | null = null;
+  private refreshRequested = false;
   private readonly renderer = new DiagnosticsRenderer();
+  private readonly queue = new SerialTaskQueue();
 
   init(): void {
     getById<HTMLButtonElement>("refresh").addEventListener("click", () => {
-      void this.refresh();
+      void this.requestRefresh();
     });
     getById<HTMLButtonElement>("run-fix").addEventListener("click", () => {
-      void this.runFix();
+      void this.queue.run(() => this.performFix());
     });
     getById<HTMLButtonElement>("force-stop").addEventListener("click", () => {
-      void this.forceStopTikTok();
+      void this.queue.run(() => this.performForceStopTikTok());
     });
     getById<HTMLButtonElement>("copy-diagnostics").addEventListener("click", () => {
       void this.copyDiagnostics();
@@ -34,19 +38,39 @@ export class DiagnosticsApp {
 
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden && getById<HTMLInputElement>("auto-refresh").checked) {
-        void this.refresh();
+        void this.requestRefresh();
       }
     });
 
     this.syncAutoRefresh();
     this.renderer.setRefreshState("idle");
-    void this.refresh();
+    void this.requestRefresh();
   }
 
-  async refresh(): Promise<void> {
+  private requestRefresh(): Promise<void> {
+    this.refreshRequested = true;
+
+    if (this.refreshPromise) {
+      return this.refreshPromise;
+    }
+
+    this.refreshPromise = this.queue.run(async () => {
+      try {
+        while (this.refreshRequested) {
+          this.refreshRequested = false;
+          await this.performRefresh();
+        }
+      } finally {
+        this.refreshPromise = null;
+      }
+    });
+
+    return this.refreshPromise;
+  }
+
+  private async performRefresh(): Promise<void> {
     this.renderer.setBusy(true);
     this.renderer.setRefreshState("loading");
-    this.renderer.updateCommandOutput("Running status check...");
 
     try {
       const [result] = await Promise.all([
@@ -60,7 +84,6 @@ export class DiagnosticsApp {
       const data = parseStatusOutput(result.stdout);
       this.renderer.render(data);
       this.renderer.setRefreshState("success");
-      this.renderer.updateCommandOutput("Status refreshed.");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.renderer.showError(message);
@@ -74,7 +97,7 @@ export class DiagnosticsApp {
     }
   }
 
-  private async runFix(): Promise<void> {
+  private async performFix(): Promise<void> {
     if (getById<HTMLButtonElement>("run-fix").dataset.repairable !== "yes") {
       toast("No local repair for this diagnosis");
       return;
@@ -88,7 +111,7 @@ export class DiagnosticsApp {
       this.renderer.updateCommandOutput(
         `${result.stdout}${result.stderr}`.trim() || "Repair command finished.",
       );
-      await this.refresh();
+      await this.performRefresh();
       toast(result.errno === 0 ? "Repair completed" : "Repair failed");
     } catch (error) {
       const message = error instanceof Error ? error.stack || error.message : String(error);
@@ -99,14 +122,14 @@ export class DiagnosticsApp {
     }
   }
 
-  private async forceStopTikTok(): Promise<void> {
+  private async performForceStopTikTok(): Promise<void> {
     this.renderer.setBusy(true);
     this.renderer.updateCommandOutput("Force-stopping TikTok...");
 
     try {
       const result = await execCommand(FORCE_STOP_CMD, {}, 5000);
       this.renderer.updateCommandOutput(result.stderr || "TikTok force-stopped.");
-      await this.refresh();
+      await this.performRefresh();
       toast(result.errno === 0 ? "TikTok stopped" : "Force stop failed");
     } catch (error) {
       const message = error instanceof Error ? error.stack || error.message : String(error);
@@ -149,7 +172,7 @@ export class DiagnosticsApp {
       if (document.hidden) {
         return;
       }
-      void this.refresh();
+      void this.requestRefresh();
     }, AUTO_REFRESH_MS);
   }
 }
