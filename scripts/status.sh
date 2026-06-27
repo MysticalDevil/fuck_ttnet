@@ -11,6 +11,7 @@ COUNT_GLOBAL_DROP_AWK="${COUNT_GLOBAL_DROP_AWK:-$MODDIR/common/count_global_drop
 LOGCAT_LINES="${LOGCAT_LINES:-300}"
 TIKTOK_EVIDENCE_PATTERN='tiktokv|aweme/|com\.ttnet|carrier_region|carrier_region_v2|mcc_mnc|op_region|residence|current_region|sys_region|cronet_internal_error_code|http_request_status_code|ExploreTopicFeedApi|musically'
 TIKTOK_SIGNAL_PATTERN='ERR_TTNET|TRAFFIC_CONTROL|InternalErrorCode=-555|ERR_CERT_AUTHORITY_INVALID|InternalErrorCode=-202|No internet connection|temporarily unavailable|not available in your region'
+REDACTED_VALUE='[REDACTED]'
 
 count_literal() {
   file="$1"
@@ -103,6 +104,38 @@ print_field() {
   printf '%s=%s\n' "$key" "$value" | tr '\n' '\n'
 }
 
+sanitize_log_block() {
+  text="$1"
+
+  for key in \
+    device_id \
+    iid \
+    install_id \
+    openudid \
+    cdid \
+    sessionid \
+    sid_tt \
+    sec_user_id \
+    token \
+    msToken \
+    odin_tt \
+    passport_csrf_token \
+    passport_csrf_token_default
+  do
+    text="$(
+      printf '%s\n' "$text" |
+        sed \
+          -e "s/\\([?&]$key=\\)[^&\"[:space:]]*/\\1$REDACTED_VALUE/g" \
+          -e "s/\\(\"$key\":\"\\)[^\"]*/\\1$REDACTED_VALUE/g"
+    )"
+  done
+
+  printf '%s\n' "$text" |
+    sed \
+      -e 's/\([Aa]uthorization:[[:space:]]*\).*/\1[REDACTED]/' \
+      -e 's/\([Cc]ookie:[[:space:]]*\).*/\1[REDACTED]/'
+}
+
 tiktok_pid="$(pid_for_tiktok)"
 latest_matches="$(latest_logcat_matches "$tiktok_pid")"
 latest_region_line="$(printf '%s\n' "$latest_matches" | grep -E 'carrier_region|mcc_mnc|current_region|sys_region' | tail -n 1)"
@@ -185,6 +218,12 @@ recent_errors="$(printf '%s\n' "$latest_matches" | grep -E 'ERR_TTNET|TRAFFIC_CO
 recent_tls_errors="$(printf '%s\n' "$latest_matches" | grep -E 'ERR_CERT_AUTHORITY_INVALID|InternalErrorCode=-202' | tail -5)"
 recent_ui_signals="$(printf '%s\n' "$latest_matches" | grep -E 'No internet connection|temporarily unavailable|not available in your region' | tail -5)"
 module_log="$(tail -12 "$LOG_FILE" 2>/dev/null)"
+
+latest_region_line="$(sanitize_log_block "$latest_region_line")"
+recent_errors="$(sanitize_log_block "$recent_errors")"
+recent_tls_errors="$(sanitize_log_block "$recent_tls_errors")"
+recent_ui_signals="$(sanitize_log_block "$recent_ui_signals")"
+module_log="$(sanitize_log_block "$module_log")"
 
 print_field "status" "$status"
 print_field "summary" "$summary"
