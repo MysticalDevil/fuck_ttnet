@@ -27,9 +27,15 @@ cleanup() {
   rm -f "$tmp_log"
 }
 trap cleanup EXIT INT TERM
+marker="fuck_ttnet_diagnose_$(date +%s)_$$"
+marker_written="no"
 
-echo "diagnose: clearing logcat"
-"$ADB" logcat -c
+echo "diagnose: writing log marker"
+if "$ADB" shell log -t FuckTTNet "$marker" >/dev/null 2>&1; then
+  marker_written="yes"
+else
+  echo "diagnose: marker write failed; falling back to unbounded logcat snapshot"
+fi
 
 echo "diagnose: force-stopping $PKG"
 "$ADB" shell am force-stop "$PKG" >/dev/null
@@ -46,8 +52,23 @@ if [ -n "$pid" ]; then
   echo "diagnose: using pid $pid"
   "$ADB" logcat -d --pid="$pid" -v time > "$tmp_log"
 else
-  echo "diagnose: pid not found, falling back to full logcat with TikTok evidence filter"
-  "$ADB" logcat -d -v time | grep -E "$TIKTOK_EVIDENCE_PATTERN|ERR_TTNET|InternalErrorCode=-555|ERR_CERT_AUTHORITY_INVALID|InternalErrorCode=-202|No internet connection|temporarily unavailable|not available in your region" > "$tmp_log" || true
+  echo "diagnose: pid not found, falling back to post-marker logcat with TikTok evidence filter"
+  if [ "$marker_written" = "yes" ]; then
+    "$ADB" logcat -d -v time |
+      awk -v marker="$marker" '
+        seen {
+          print
+          next
+        }
+        index($0, marker) {
+          seen = 1
+        }
+      ' |
+      grep -E "$TIKTOK_EVIDENCE_PATTERN|ERR_TTNET|InternalErrorCode=-555|ERR_CERT_AUTHORITY_INVALID|InternalErrorCode=-202|No internet connection|temporarily unavailable|not available in your region" > "$tmp_log" || true
+  else
+    "$ADB" logcat -d -v time |
+      grep -E "$TIKTOK_EVIDENCE_PATTERN|ERR_TTNET|InternalErrorCode=-555|ERR_CERT_AUTHORITY_INVALID|InternalErrorCode=-202|No internet connection|temporarily unavailable|not available in your region" > "$tmp_log" || true
+  fi
 fi
 
 classification="unknown"
