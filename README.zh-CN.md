@@ -23,6 +23,21 @@ drop、`ERR_TTNET_TRAFFIC_CONTROL_DROP`、`InternalErrorCode=-555`、
 
 不要把所有“无网络”都直接当成 `3011076`。具体分类见上面的总览文档。
 
+## 当前可用性
+
+当前项目状态：
+
+- 对仓库的主目标已经比较可靠：诊断并修复本地缓存的 `3011076` / `-555`
+  TTNet drop
+- 对相邻情况也有一定帮助，但能力有限，比如
+  `ERR_CERT_AUTHORITY_INVALID` / `-202`、默认网络未通过校验、以及只有 UI
+  层提示的泛化无网络
+- 还不是一个能完整覆盖所有地区、服务端、SIM、代理侧异常的通用 TikTok
+  无网络平台
+
+通俗说：它现在已经能作为一个“诊断优先”的 KernelSU 工具实际使用，但最强、
+最稳、最有把握的本地修复仍然是缓存下来的 `3011076` dispatch-drop 场景。
+
 ## 模块作用
 
 Fuck TTNet 是一个“诊断优先”的模块。它会先告诉你当前 TikTok 的“无网络”
@@ -104,6 +119,16 @@ WebUI 操作：
 - `Attempt Repair`：按当前诊断结果执行对应的本地动作。
 - `Force Stop TikTok`：修复后重启 TikTok 进程内的 TTNet 状态。
 - `Copy Diagnostics`：复制脱敏后的诊断信息。
+
+`v1.1.2` 最近的行为变化：
+
+- 复制诊断信息时会脱敏明显敏感值，例如 `device_id`、`iid`、`sessionid`
+- WebUI 动作已经串行化，连续刷新、修复、强停不会再互相竞态覆盖
+- WebUI 刷新不再把上一条修复输出冲掉
+- 主机侧 `scripts/diagnose_no_network.sh` 不再为了抓取新日志而清空整机
+  logcat buffer
+- `device_network_unvalidated` 现在优先看 active default network，而不是更弱
+  的全局 `VALIDATED` 文本匹配
 
 当前修复动作有三类：
 

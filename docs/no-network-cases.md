@@ -153,6 +153,12 @@ Use:
 scripts/diagnose_no_network.sh
 ```
 
+Current script behavior note:
+
+- it no longer clears the device's whole logcat buffer
+- it writes a temporary marker and prefers logs after that marker when pid
+  filtering is unavailable
+
 ### Case 2 Local Fixability
 
 - No, not with the current module.

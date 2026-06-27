@@ -1,6 +1,6 @@
 id=fuck_ttnet
 name=Fuck TTNet
-version=v1.1.1
-versionCode=10
+version=v1.1.2
+versionCode=11
 author=MysticalDevil
 description=Diagnose TikTok no-network cases and repair local TTNet 3011076 drops when supported.

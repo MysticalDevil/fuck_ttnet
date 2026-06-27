@@ -25,6 +25,22 @@ local repair coverage is:
 
 See the broader case map above before assuming every failure is `3011076`.
 
+## Current Usability
+
+Current project status:
+
+- reliable enough for the repository's main goal: diagnosing and repairing the
+  local cached `3011076` / `-555` TTNet drop
+- useful but limited for adjacent cases such as `ERR_CERT_AUTHORITY_INVALID` /
+  `-202`, default-network validation failures, and generic UI-only no-network
+  states
+- not yet a complete general TikTok no-network platform for every regional,
+  server-side, SIM-side, or proxy-side failure
+
+In practical terms: this module is already usable as a diagnosis-first KernelSU
+tool, but its strongest and most defensible local repair is still the cached
+`3011076` dispatch-drop case.
+
 ## Module Purpose
 
 Fuck TTNet is a diagnosis-first module. It tells you whether the current
@@ -109,6 +125,18 @@ WebUI actions:
 - `Attempt Repair`: run the diagnosis-specific local action.
 - `Force Stop TikTok`: restart TikTok's in-memory TTNet state after patching.
 - `Copy Diagnostics`: copy a redacted status report.
+
+Recent behavior changes in `v1.1.2`:
+
+- copied diagnostics now redact obvious sensitive values such as `device_id`,
+  `iid`, and `sessionid`
+- WebUI actions are serialized so repeated refresh, repair, and force-stop
+  operations do not race each other
+- WebUI refresh no longer overwrites the most recent repair output
+- host-side `scripts/diagnose_no_network.sh` no longer clears the device's
+  entire logcat buffer before collecting a trace
+- `device_network_unvalidated` now prefers the active default network state
+  over a weaker broad `VALIDATED` grep
 
 Current repair actions:
 

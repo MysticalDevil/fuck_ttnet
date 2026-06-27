@@ -143,6 +143,11 @@ TTNet 会从本地缓存加载 TNC dispatch 策略，并且能在 DNS、TCP、TL
 scripts/diagnose_no_network.sh
 ```
 
+当前脚本行为说明：
+
+- 它现在不会再清空设备整份 logcat buffer
+- 如果拿不到 pid，就会先写一个临时 marker，再尽量只取 marker 之后的新日志
+
 ### 情况 2 是否本地可修
 
 - 不能靠当前模块修。
