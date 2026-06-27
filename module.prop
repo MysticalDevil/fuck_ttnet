@@ -1,6 +1,6 @@
 id=fuck_ttnet
 name=Fuck TTNet
-version=v1.0.2
-versionCode=3
-author=omega
-description=Fix TikTok TTNet 3011076 no-network drops: ERR_TTNET_TRAFFIC_CONTROL_DROP / -555.
+version=v1.1.1
+versionCode=10
+author=MysticalDevil
+description=Diagnose TikTok no-network cases and repair local TTNet 3011076 drops when supported.

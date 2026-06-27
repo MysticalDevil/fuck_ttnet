@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="/internal/insets.css" />
+    <title>Fuck TTNet</title>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div class="title-block">
+          <p class="eyebrow">Fuck TTNet</p>
+          <h1>TikTok No-Network Diagnostics</h1>
+          <p id="subtitle" class="subtitle">
+            Live TTNet state, runtime signals, and repair controls.
+          </p>
+        </div>
+        <div class="header-tools">
+          <div class="meta-strip">
+            <span id="meta-updated" class="meta-pill">Waiting for first refresh</span>
+            <span id="meta-network" class="meta-pill">Network unknown</span>
+            <span id="meta-package" class="meta-pill">TikTok package</span>
+          </div>
+          <div class="sync-card">
+            <div class="sync-copy">
+              <span id="refresh-state" class="meta-pill">Idle</span>
+              <p id="refresh-detail" class="sync-detail">
+                Pull live TTNet status, file evidence, and recent runtime signals.
+              </p>
+            </div>
+            <button
+              id="refresh"
+              class="sync-button"
+              type="button"
+              title="Refresh diagnostics"
+            >
+              <span class="refresh-glyph" aria-hidden="true">&#8635;</span>
+              <span class="refresh-copy">
+                <span id="refresh-label" class="refresh-label">Refresh now</span>
+                <span id="refresh-subtext" class="refresh-subtext">
+                  Pull latest device state
+                </span>
+              </span>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <section id="status-card" class="status-hero is-unknown">
+        <div class="status-main">
+          <div class="status-heading">
+            <p class="status-label">Current Diagnosis</p>
+            <span id="status-pill" class="status-pill">Unknown</span>
+          </div>
+          <h2 id="status-title">Loading</h2>
+          <p id="status-summary" class="status-summary">
+            Reading TikTok TTNet state...
+          </p>
+          <div class="status-foot">
+            <div>
+              <p class="mini-label">Recommended action</p>
+              <p id="recommended-action" class="status-action">-</p>
+            </div>
+            <div>
+              <p class="mini-label">Repairability</p>
+              <p id="repairability" class="status-action">-</p>
+            </div>
+          </div>
+        </div>
+
+        <aside class="status-aside">
+          <div class="metric-card">
+            <span class="metric-label">Global Drop Hits</span>
+            <strong id="server-rule" class="metric-value">-</strong>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Config Hits</span>
+            <strong id="config-hits" class="metric-value">-</strong>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Recent TTNet</span>
+            <strong id="recent-ttnet-count" class="metric-value">-</strong>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Recent TLS</span>
+            <strong id="recent-tls-count" class="metric-value">-</strong>
+          </div>
+        </aside>
+      </section>
+
+      <section class="toolbar" aria-label="Actions">
+        <div class="primary-actions">
+          <button id="run-fix" type="button">Attempt Repair</button>
+          <button id="force-stop" type="button">Force Stop TikTok</button>
+          <button id="copy-diagnostics" type="button">Copy Diagnostics</button>
+        </div>
+
+        <label class="live-toggle" for="auto-refresh">
+          <input id="auto-refresh" type="checkbox" checked />
+          <span>Auto refresh</span>
+        </label>
+      </section>
+
+      <section class="dashboard">
+        <article class="panel">
+          <div class="panel-head">
+            <h3>Diagnosis</h3>
+            <span id="diagnosis-id-badge" class="inline-badge">-</span>
+          </div>
+          <dl class="kv">
+            <div><dt>Diagnosis ID</dt><dd id="diagnosis-id">-</dd></div>
+            <div><dt>Transport stage</dt><dd id="transport-stage">-</dd></div>
+            <div><dt>Recent UI signal count</dt><dd id="recent-ui-count">-</dd></div>
+            <div><dt>Last region trace</dt><dd id="latest-region-line">-</dd></div>
+          </dl>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <h3>Runtime</h3>
+            <span id="runtime-badge" class="inline-badge">-</span>
+          </div>
+          <dl class="kv">
+            <div><dt>TikTok PID</dt><dd id="tiktok-pid">-</dd></div>
+            <div><dt>Default network validated</dt><dd id="network-validated">-</dd></div>
+            <div><dt>Module version</dt><dd id="module-version">-</dd></div>
+            <div><dt>Package</dt><dd id="package-name">-</dd></div>
+          </dl>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <h3>Region Signals</h3>
+            <span id="region-badge" class="inline-badge">No trace</span>
+          </div>
+          <dl class="kv">
+            <div><dt>carrier_region</dt><dd id="carrier-region">-</dd></div>
+            <div><dt>carrier_region_v2</dt><dd id="carrier-region-v2">-</dd></div>
+            <div><dt>mcc_mnc</dt><dd id="mcc-mnc">-</dd></div>
+            <div><dt>region / current / sys</dt><dd id="regions">-</dd></div>
+          </dl>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <h3>Local Files</h3>
+            <span id="file-badge" class="inline-badge">-</span>
+          </div>
+          <dl class="kv">
+            <div><dt>server.json path</dt><dd id="server-json-path">-</dd></div>
+            <div><dt>server.json mtime / size</dt><dd id="server-mtime">-</dd></div>
+            <div><dt>tt_net_config path</dt><dd id="tt-net-config-path">-</dd></div>
+            <div><dt>tt_net_config mtime / size</dt><dd id="config-mtime">-</dd></div>
+            <div><dt>server.json literal hits</dt><dd id="server-literal">-</dd></div>
+            <div><dt>keva TNC / multi hits</dt><dd id="keva-hits">-</dd></div>
+          </dl>
+        </article>
+
+        <article class="panel span">
+          <div class="panel-head">
+            <h3>Evidence</h3>
+            <span id="evidence-badge" class="inline-badge">-</span>
+          </div>
+          <div class="evidence-layout">
+            <div class="evidence-nav">
+              <div class="log-tabs" role="tablist" aria-label="Evidence Logs">
+                <button class="log-tab is-active" data-log-tab="ttnet" type="button">
+                  TTNet
+                </button>
+                <button class="log-tab" data-log-tab="tls" type="button">TLS</button>
+                <button class="log-tab" data-log-tab="ui" type="button">UI</button>
+                <button class="log-tab" data-log-tab="module" type="button">Module</button>
+                <button class="log-tab" data-log-tab="command" type="button">Command</button>
+              </div>
+
+              <div class="evidence-summary">
+                <span id="evidence-title" class="evidence-title">Recent TTNet Drops</span>
+                <span id="evidence-meta" class="evidence-meta">
+                  Waiting for diagnostics
+                </span>
+              </div>
+            </div>
+
+            <div class="evidence-surface">
+              <pre id="evidence-log" class="log">Waiting for diagnostics...</pre>
+            </div>
+          </div>
+        </article>
+      </section>
+    </main>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

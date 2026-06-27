@@ -6,6 +6,7 @@ FILES_DIR="${FILES_DIR:-$APP_DIR/files}"
 SERVER_JSON="${SERVER_JSON:-$FILES_DIR/server.json}"
 TT_NET_CONFIG="${TT_NET_CONFIG:-$FILES_DIR/tt_net_config.config}"
 LOG_FILE="${LOG_FILE:-$MODDIR/fuck_ttnet.log}"
+REMOVE_GLOBAL_DROP_AWK="${REMOVE_GLOBAL_DROP_AWK:-$MODDIR/common/remove_global_drop.awk}"
 
 log_msg() {
   now="$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null)"
@@ -95,29 +96,16 @@ replace_if_changed() {
 patch_server_json() {
   [ -f "$SERVER_JSON" ] || return 0
   grep -q '3011076' "$SERVER_JSON" 2>/dev/null || return 0
+  [ -f "$REMOVE_GLOBAL_DROP_AWK" ] || {
+    log_msg "missing patch script: $REMOVE_GLOBAL_DROP_AWK"
+    return 1
+  }
 
   out="$SERVER_JSON.fuck_ttnet.out.$$"
 
-  sed -E \
-    -e 's#,\{"act_priority":[0-9]+,"action":"tc","param":\{"contain_group":\["(\\/|/)"\],"drop":1,"drop_reason":2,"host_group":\["\*"\],"possibility":100,"service_name":"drop flow"\},"rule_id":3011076,"sign":"[0-9A-Fa-f]+"\}##g' \
-    -e 's#\{"act_priority":[0-9]+,"action":"tc","param":\{"contain_group":\["(\\/|/)"\],"drop":1,"drop_reason":2,"host_group":\["\*"\],"possibility":100,"service_name":"drop flow"\},"rule_id":3011076,"sign":"[0-9A-Fa-f]+"\},##g' \
-    -e 's#,\{"param":\{"drop":1,"drop_reason":2,"host_group":\["\*"\],"possibility":100,"service_name":"drop flow","contain_group":\["(\\/|/)"\]\},"rule_id":3011076,"sign":"[0-9A-Fa-f]+","act_priority":[0-9]+,"action":"tc"\}##g' \
-    -e 's#\{"param":\{"drop":1,"drop_reason":2,"host_group":\["\*"\],"possibility":100,"service_name":"drop flow","contain_group":\["(\\/|/)"\]\},"rule_id":3011076,"sign":"[0-9A-Fa-f]+","act_priority":[0-9]+,"action":"tc"\},##g' \
-    "$SERVER_JSON" > "$out" 2>> "$LOG_FILE" || {
-    log_msg "sed patch failed for server.json"
+  awk -f "$REMOVE_GLOBAL_DROP_AWK" "$SERVER_JSON" > "$out" 2>> "$LOG_FILE" || {
+    log_msg "awk patch failed for server.json"
     rm -f "$out" 2>/dev/null
-    return 1
-  }
-
-  cleanup="$out.cleanup"
-  sed -e 's/\[,/[/g' -e 's/,]/]/g' "$out" > "$cleanup" 2>> "$LOG_FILE" || {
-    log_msg "sed cleanup failed for server.json"
-    rm -f "$out" "$cleanup" 2>/dev/null
-    return 1
-  }
-  mv "$cleanup" "$out" 2>/dev/null || {
-    log_msg "failed to finalize cleanup for server.json"
-    rm -f "$out" "$cleanup" 2>/dev/null
     return 1
   }
 
