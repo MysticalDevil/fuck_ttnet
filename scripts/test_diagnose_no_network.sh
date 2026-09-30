@@ -62,10 +62,55 @@ EOF
 
 chmod +x "$adb_stub"
 
+# diagnose_no_network.sh classifies with `rg`, which is not installed on a
+# stock GitHub Actions runner. Without this stub the classification degrades
+# to "unknown" and the test fails for a reason unrelated to the code under
+# test. Providing our own rg keeps the test hermetic and makes it exercise the
+# real classification logic on any host.
+stub_bin="$WORK_DIR/bin"
+mkdir -p "$stub_bin"
+
+cat > "$stub_bin/rg" <<'EOF'
+#!/usr/bin/env sh
+# Minimal ripgrep shim: only the flags diagnose_no_network.sh uses.
+#   rg -q PATTERN FILE   -> quiet, exit 0 on match
+#   rg -n PATTERN FILE   -> print matching lines
+quiet=0
+numbered=0
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -q) quiet=1; shift ;;
+    -n) numbered=1; shift ;;
+    --) shift; break ;;
+    -*) shift ;;
+    *) break ;;
+  esac
+done
+
+pattern="$1"
+shift
+
+if [ "$quiet" -eq 1 ]; then
+  grep -Eq -- "$pattern" "$@"
+  exit $?
+fi
+
+if [ "$numbered" -eq 1 ]; then
+  grep -En -- "$pattern" "$@"
+  exit $?
+fi
+
+grep -E -- "$pattern" "$@"
+EOF
+
+chmod +x "$stub_bin/rg"
+
 ADB_COMMANDS_LOG="$commands_log" \
 ADB_MARKER_FILE="$marker_file" \
 ADB="$adb_stub" \
 WAIT_SECONDS=0 \
+PATH="$stub_bin:$PATH" \
 sh "$ROOT_DIR/scripts/diagnose_no_network.sh" >"$stdout_log" 2>"$stderr_log"
 
 assert_stdout_contains() {
