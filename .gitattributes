@@ -1,0 +1,37 @@
+# Keep every text file LF on every platform.
+#
+# The module ships shell scripts, awk programs and module.prop into a
+# KernelSU/Magisk zip. A trailing CR breaks the device side: Android's mksh
+# does not treat CR as whitespace, so `then\r` / `do\r` / `fi\r` are not
+# keywords, `#!/system/bin/sh\r` is not a usable shebang, and
+# `version=v1.1.2\r` leaks a raw CR into the zip name.
+#
+# Without this file a Windows checkout (core.autocrlf=true) rewrites all of
+# these to CRLF, which also makes every scripts/test_*.sh exit immediately
+# with `$'\r': command not found` and rc=2.
+
+* text=auto eol=lf
+
+*.sh    text eol=lf
+*.awk   text eol=lf
+*.prop  text eol=lf
+*.json  text eol=lf
+*.md    text eol=lf
+*.ts    text eol=lf
+*.html  text eol=lf
+*.css   text eol=lf
+*.py    text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+
+# Binary assets must never be line-ending converted.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.webp  binary
+*.gif   binary
+*.apk   binary
+*.zip   binary
+*.jar   binary
+*.so    binary
+*.dex   binary
