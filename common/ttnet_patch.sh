@@ -35,21 +35,57 @@ wait_for_tiktok_data() {
 }
 
 owner_group_for_app() {
-  # Android toybox stat formats vary across versions; numeric ls is more stable here.
-  # shellcheck disable=SC2012
-  ls -ldn "$FILES_DIR" 2>/dev/null | awk '{print $3 ":" $4}'
-}
+  # `stat -c` is available on toybox and gives a stable numeric owner:group.
+  # Numeric `ls -ldn` is kept as a fallback for older or unusual builds.
+  owner_group=""
 
-restore_app_file_attrs() {
-  file="$1"
-  owner_group="$(owner_group_for_app)"
-
-  if [ -n "$owner_group" ]; then
-    chown "$owner_group" "$file" 2>/dev/null || log_msg "chown failed for $file"
+  if command -v stat >/dev/null 2>&1; then
+    owner_group="$(stat -c '%u:%g' "$FILES_DIR" 2>/dev/null)"
   fi
 
-  chmod 600 "$file" 2>/dev/null || log_msg "chmod failed for $file"
+  if [ -z "$owner_group" ]; then
+    # shellcheck disable=SC2012
+    owner_group="$(ls -ldn "$FILES_DIR" 2>/dev/null | awk 'NR == 1 {print $3 ":" $4}')"
+  fi
+
+  printf '%s' "$owner_group"
+}
+
+# Sets owner/group to $2 if provided, otherwise resolves it from $FILES_DIR.
+# Returns non-zero only when the owner cannot be resolved at all, because
+# leaving an app data file owned by root breaks the app.
+restore_app_file_attrs() {
+  file="$1"
+  owner_group="${2:-}"
+
+  if [ -z "$owner_group" ]; then
+    owner_group="$(owner_group_for_app)"
+  fi
+
+  if [ -z "$owner_group" ]; then
+    log_msg "cannot resolve owner for $FILES_DIR"
+    return 1
+  fi
+
+  if ! chown "$owner_group" "$file" 2>/dev/null; then
+    log_msg "chown $owner_group failed for $file"
+    return 1
+  fi
+
+  if ! chmod 600 "$file" 2>/dev/null; then
+    log_msg "chmod 600 failed for $file"
+    return 1
+  fi
+
   restorecon "$file" >/dev/null 2>&1 || true
+  return 0
+}
+
+# True when the file ends with a newline byte.
+file_ends_with_newline() {
+  file="$1"
+  [ -f "$file" ] || return 1
+  [ "$(tail -c 1 "$file" 2>/dev/null | od -An -c 2>/dev/null | tr -d ' ')" = '\n' ]
 }
 
 backup_once() {
@@ -59,8 +95,12 @@ backup_once() {
   [ -f "$file" ] || return 0
   [ -f "$backup" ] && return 0
 
-  cp "$file" "$backup" 2>/dev/null && log_msg "backup created: $backup"
-  restore_app_file_attrs "$backup"
+  if cp "$file" "$backup" 2>/dev/null; then
+    log_msg "backup created: $backup"
+    if ! restore_app_file_attrs "$backup"; then
+      log_msg "backup $backup left with unexpected owner or mode"
+    fi
+  fi
 }
 
 replace_if_changed() {
@@ -71,6 +111,15 @@ replace_if_changed() {
   [ -s "$source" ] || return 1
 
   if cmp -s "$source" "$target" 2>/dev/null; then
+    rm -f "$source" "$tmp" 2>/dev/null
+    return 1
+  fi
+
+  # Resolve the owner before touching anything. Replacing an app data file
+  # with one we cannot chown back would leave it root-owned and break TikTok.
+  owner_group="$(owner_group_for_app)"
+  if [ -z "$owner_group" ]; then
+    log_msg "refusing to replace $target: cannot resolve owner for $FILES_DIR"
     rm -f "$source" "$tmp" 2>/dev/null
     return 1
   fi
@@ -89,7 +138,12 @@ replace_if_changed() {
   }
 
   rm -f "$source" 2>/dev/null
-  restore_app_file_attrs "$target"
+
+  if ! restore_app_file_attrs "$target" "$owner_group"; then
+    log_msg "replaced $target but could not restore owner or mode"
+    return 1
+  fi
+
   return 0
 }
 
@@ -103,7 +157,11 @@ patch_server_json() {
 
   out="$SERVER_JSON.fuck_ttnet.out.$$"
 
-  awk -f "$REMOVE_GLOBAL_DROP_AWK" "$SERVER_JSON" > "$out" 2>> "$LOG_FILE" || {
+  had_trailing_newline=0
+  file_ends_with_newline "$SERVER_JSON" && had_trailing_newline=1
+
+  awk -v had_trailing_newline="$had_trailing_newline" \
+    -f "$REMOVE_GLOBAL_DROP_AWK" "$SERVER_JSON" > "$out" 2>> "$LOG_FILE" || {
     log_msg "awk patch failed for server.json"
     rm -f "$out" 2>/dev/null
     return 1

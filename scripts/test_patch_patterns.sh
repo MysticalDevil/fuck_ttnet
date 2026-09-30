@@ -20,12 +20,19 @@ build_server_json() {
   output_path="$1"
   slash_mode="$2"
   order_mode="$3"
+  trailing_newline="${4:-yes}"
 
-  python3 - "$ROOT_DIR/samples/observed_3011076_drop_rule.json" "$output_path" "$slash_mode" "$order_mode" <<'PY'
+  python3 - "$ROOT_DIR/samples/observed_3011076_drop_rule.json" "$output_path" "$slash_mode" "$order_mode" "$trailing_newline" <<'PY'
 import json
 import sys
 
-sample_path, output_path, slash_mode, order_mode = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+sample_path, output_path, slash_mode, order_mode, trailing_newline = (
+    sys.argv[1],
+    sys.argv[2],
+    sys.argv[3],
+    sys.argv[4],
+    sys.argv[5],
+)
 with open(sample_path, "r", encoding="utf-8") as sample_file:
     observed = json.load(sample_file)["data"]["ttnet_dispatch_actions"][0]
 
@@ -77,13 +84,17 @@ with open(output_path, "w", encoding="utf-8") as output_file:
     if slash_mode == "escaped":
         text = text.replace('"/"', '"\\/"')
     output_file.write(text)
+    if trailing_newline == "yes":
+        output_file.write("\n")
 PY
 }
 
 run_case() {
   slash_mode="$1"
   order_mode="$2"
-  case_dir="$WORK_DIR/$slash_mode-$order_mode"
+  trailing_newline="${3:-yes}"
+  owner_mode="${4:-resolvable}"
+  case_dir="$WORK_DIR/$slash_mode-$order_mode-$trailing_newline-$owner_mode"
 
   MODDIR="$case_dir/module"
   FILES_DIR="$case_dir/app/files"
@@ -94,16 +105,37 @@ run_case() {
   export MODDIR FILES_DIR SERVER_JSON TT_NET_CONFIG LOG_FILE REMOVE_GLOBAL_DROP_AWK
 
   mkdir -p "$MODDIR" "$FILES_DIR"
-  build_server_json "$SERVER_JSON" "$slash_mode" "$order_mode"
+  build_server_json "$SERVER_JSON" "$slash_mode" "$order_mode" "$trailing_newline"
   printf 'prefix dispatch:1,3011076,2 suffix\n' > "$TT_NET_CONFIG"
 
   # shellcheck disable=SC1091
   . "$ROOT_DIR/common/ttnet_patch.sh"
 
+  if [ "$owner_mode" = "unresolvable" ]; then
+    owner_group_for_app() { printf ''; }
+  fi
+
   patch_tiktok_ttnet
 
+  label="$slash_mode/$order_mode/newline=$trailing_newline/owner=$owner_mode"
+
+  if [ "$owner_mode" = "unresolvable" ]; then
+    # Refusing to rewrite is the correct outcome: replacing the file would
+    # leave it root-owned and break TikTok.
+    if ! grep -q '3011076' "$SERVER_JSON"; then
+      echo "test: replaced a file whose owner could not be resolved ($label)" >&2
+      exit 1
+    fi
+    if ! grep -q 'refusing to replace' "$LOG_FILE" 2>/dev/null; then
+      echo "test: expected a refusal log entry for $label" >&2
+      exit 1
+    fi
+    echo "test: refusal path ok ($label)"
+    return 0
+  fi
+
   if grep -q '3011076' "$SERVER_JSON" "$TT_NET_CONFIG"; then
-    echo "test: 3011076 was not fully removed for $slash_mode/$order_mode JSON" >&2
+    echo "test: 3011076 was not fully removed for $label" >&2
     exit 1
   fi
 
@@ -117,11 +149,28 @@ actions = data["data"]["ttnet_dispatch_actions"]
 rule_ids = [item.get("rule_id") for item in actions]
 assert rule_ids == [1, 2], rule_ids
 PY
+
+  # The patch must not change whether the file ends with a newline. TTNet
+  # caches an etag over this payload, so a stray byte is a real difference.
+  if [ "$trailing_newline" = "yes" ]; then
+    if [ "$(tail -c 1 "$SERVER_JSON" | od -An -c | tr -d ' ')" != '\n' ]; then
+      echo "test: lost the trailing newline for $label" >&2
+      exit 1
+    fi
+  else
+    if [ "$(tail -c 1 "$SERVER_JSON" | od -An -c | tr -d ' ')" = '\n' ]; then
+      echo "test: added a trailing newline for $label" >&2
+      exit 1
+    fi
+  fi
 }
 
 run_case "plain" "observed"
 run_case "escaped" "observed"
 run_case "plain" "reordered"
 run_case "escaped" "reordered"
+run_case "plain" "observed" "no"
+run_case "escaped" "reordered" "no"
+run_case "plain" "observed" "yes" "unresolvable"
 
 echo "test: patch patterns passed"

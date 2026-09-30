@@ -111,5 +111,14 @@ END {
       offset = start
     }
   }
-  print json
+
+  # `print` always appends a newline, so a config that did not end with one
+  # came back one byte longer even when nothing was removed. TTNet caches an
+  # etag over this payload, so keep the original byte shape.
+  # RT is not available in toybox awk, so the caller passes had_trailing_newline.
+  if (had_trailing_newline) {
+    print json
+  } else {
+    printf "%s", json
+  }
 }
