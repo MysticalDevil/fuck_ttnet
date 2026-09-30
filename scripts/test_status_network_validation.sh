@@ -47,8 +47,9 @@ run_case() {
   dumpsys_body="$3"
   expected_diagnosis="$4"
   expected_network_state="$5"
+  case_dir_name="${6:-$1}"
 
-  case_dir="$WORK_DIR/$case_name"
+  case_dir="$WORK_DIR/$case_dir_name"
   moddir="$case_dir/mod"
   appdir="$case_dir/app"
   bindir="$case_dir/bin"
@@ -85,6 +86,52 @@ run_case() {
   fi
 }
 
+# Regression guard for the E2BIG defect.
+#
+# On Android, `dumpsys connectivity` exceeds MAX_ARG_STRLEN (128 KiB). The old
+# implementation captured it into a shell variable and passed that variable to
+# printf as a single argument, which mksh rejects:
+#
+#   /system/bin/printf: Argument list too long
+#
+# Every one of those calls failed, the function fell through to 'unknown', and
+# the `device_network_unvalidated` diagnosis became unreachable on real
+# devices. Linux hosts are far more permissive about argument size, so a host
+# test cannot make that exec fail; what it can do is pin the structure that
+# made it fail. scripts/verify_e2big_boundary.sh proves the boundary on a
+# real device.
+assert_uses_file_redirection() {
+  body="$(
+    sed -n '/^default_network_validated() {/,/^}/p' "$ROOT_DIR/scripts/status.sh"
+  )"
+
+  if [ -z "$body" ]; then
+    printf 'test: could not extract default_network_validated() from status.sh\n' >&2
+    exit 1
+  fi
+
+  if printf '%s\n' "$body" | grep -q 'printf .*"\$connectivity_dump"'; then
+    printf 'test: default_network_validated() passes the whole dumpsys as an argument\n' >&2
+    printf 'test: that is the 128 KiB E2BIG defect; keep the dump on disk\n' >&2
+    exit 1
+  fi
+
+  if printf '%s\n' "$body" | grep -q 'connectivity_dump='; then
+    printf 'test: default_network_validated() still captures dumpsys into a variable\n' >&2
+    exit 1
+  fi
+
+  if ! printf '%s\n' "$body" | grep -q 'grep -Eq .*"\$connectivity_file"'; then
+    printf 'test: default_network_validated() no longer reads the dump from a file\n' >&2
+    exit 1
+  fi
+
+  if printf '%s\n' "$body" | grep -q 'active_block" | grep -q'; then
+    printf 'test: default_network_validated() still pipes active_block through printf\n' >&2
+    exit 1
+  fi
+}
+
 run_case \
   "no_default_network" \
   '06-28 12:00:00.000  1111  2222 I ActivityManager: TikTok says No internet connection right now' \
@@ -103,5 +150,36 @@ Current Networks:
     NetworkCapabilities: INTERNET&TRUSTED&VALIDATED' \
   "device_network_unvalidated" \
   "no"
+
+# Oversized dumpsys: the active network's VALIDATED flag sits far past where a
+# 128 KiB single-argument limit would truncate the payload.
+oversized_dumpsys_file="$WORK_DIR/oversized_dumpsys.txt"
+{
+  i=0
+  while [ "$i" -lt 2400 ]; do
+    printf '  filler record %s      NetworkRequest [ LISTEN id=1, [ Capabilities: INTERNET Uid: 1000 ] ]\n' "$i"
+    i=$((i + 1))
+  done
+  printf '%s\n' 'Active default network: 100'
+  printf '%s\n' '  NetworkAgentInfo{network{100} handle{1} ni{WIFI CONNECTED}}'
+  printf '%s\n' '    nc{[ Transports: WIFI Capabilities: INTERNET&TRUSTED&VALIDATED ]}'
+} > "$oversized_dumpsys_file"
+
+oversized_size="$(wc -c < "$oversized_dumpsys_file" | tr -d ' ')"
+if [ "$oversized_size" -le 131072 ]; then
+  printf 'test: oversized dumpsys is only %s bytes; must exceed 131072\n' \
+    "$oversized_size" >&2
+  exit 1
+fi
+
+run_case \
+  "oversized_validated_default_network" \
+  '06-28 12:00:00.000  1111  2222 I ActivityManager: TikTok says No internet connection right now' \
+  "$(cat "$oversized_dumpsys_file")" \
+  "ui_only_generic_or_region_unavailable" \
+  "yes" \
+  "oversized"
+
+assert_uses_file_redirection
 
 echo "test: status network validation passed"

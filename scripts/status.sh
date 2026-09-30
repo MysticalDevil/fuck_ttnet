@@ -67,71 +67,93 @@ pid_for_tiktok() {
 }
 
 default_network_validated() {
-  connectivity_dump="$(dumpsys connectivity 2>/dev/null)"
+  # `dumpsys connectivity` is routinely larger than 128 KiB on modern Android
+  # (Wi-Fi + cellular + every registered NetworkRequest). Android's mksh
+  # refuses to exec a program when a single argument exceeds MAX_ARG_STRLEN,
+  # so passing the whole blob to printf/grep as an argument fails with
+  # "/system/bin/printf: Argument list too long" and this function silently
+  # fell through to 'unknown' on every device.
+  #
+  # Keep the dump on disk and let the tools read it from the file instead.
+  # scripts/verify_e2big_boundary.sh reproduces the original failure.
+  connectivity_file="$(
+    mktemp "${TMPDIR:-/tmp}/fuck_ttnet_connectivity.XXXXXX" 2>/dev/null
+  )"
 
-  if [ -z "$connectivity_dump" ]; then
+  if [ -z "$connectivity_file" ]; then
     printf 'unknown'
     return
   fi
 
-  if printf '%s\n' "$connectivity_dump" | grep -Eq 'Active default network:[[:space:]]*(none|None|null)|No active default network'; then
+  dumpsys connectivity > "$connectivity_file" 2>/dev/null || true
+
+  if [ ! -s "$connectivity_file" ]; then
+    rm -f "$connectivity_file" 2>/dev/null
+    printf 'unknown'
+    return
+  fi
+
+  if grep -Eq 'Active default network:[[:space:]]*(none|None|null)|No active default network' "$connectivity_file"; then
+    rm -f "$connectivity_file" 2>/dev/null
     printf 'no'
     return
   fi
 
   active_id="$(
-    printf '%s\n' "$connectivity_dump" |
-      sed -n 's/.*Active default network:[[:space:]]*\([0-9][0-9]*\).*/\1/p' |
+    sed -n 's/.*Active default network:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$connectivity_file" |
       head -n 1
   )"
 
+  result=""
+
   if [ -n "$active_id" ]; then
     active_block="$(
-      printf '%s\n' "$connectivity_dump" |
-        awk -v id="$active_id" '
-          BEGIN {
-            capture = 0
-            found = 0
-          }
+      awk -v id="$active_id" '
+        BEGIN {
+          capture = 0
+          found = 0
+        }
 
-          /NetworkAgentInfo/ {
-            if (capture) {
-              exit
-            }
-            if (match($0, "(^|[^0-9])" id "([^0-9]|$)")) {
-              capture = 1
-              found = 1
-            }
+        /NetworkAgentInfo/ {
+          if (capture) {
+            exit
           }
+          if (match($0, "(^|[^0-9])" id "([^0-9]|$)")) {
+            capture = 1
+            found = 1
+          }
+        }
 
-          capture {
-            print
-          }
+        capture {
+          print
+        }
 
-          END {
-            if (!found) {
-              exit 1
-            }
+        END {
+          if (!found) {
+            exit 1
           }
-        ' 2>/dev/null || true
+        }
+      ' "$connectivity_file" 2>/dev/null || true
     )"
 
     if [ -n "$active_block" ]; then
-      if printf '%s\n' "$active_block" | grep -q 'VALIDATED'; then
-        printf 'yes'
-      else
-        printf 'no'
-      fi
-      return
+      case "$active_block" in
+        *VALIDATED*) result="yes" ;;
+        *) result="no" ;;
+      esac
     fi
   fi
 
-  if printf '%s\n' "$connectivity_dump" | grep -q 'Capabilities: .*VALIDATED'; then
-    printf 'yes'
-    return
+  if [ -z "$result" ]; then
+    if grep -q 'Capabilities: .*VALIDATED' "$connectivity_file"; then
+      result="yes"
+    else
+      result="unknown"
+    fi
   fi
 
-  printf 'unknown'
+  rm -f "$connectivity_file" 2>/dev/null
+  printf '%s' "$result"
 }
 
 collect_logcat() {
