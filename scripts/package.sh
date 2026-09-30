@@ -6,13 +6,52 @@ ROOT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
 STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/fuck_ttnet_package.XXXXXX")"
 
+output=""
+tmp_output=""
+
 cleanup() {
   rm -rf "$STAGING_DIR"
+  # A failed zip used to leave $DIST_DIR/.<id>-<version>.zip.tmp behind.
+  [ -n "$tmp_output" ] && rm -f "$tmp_output"
 }
 trap cleanup EXIT HUP INT TERM
 
-version="$(sed -n 's/^version=//p' "$ROOT_DIR/module.prop" | head -n 1)"
-module_id="$(sed -n 's/^id=//p' "$ROOT_DIR/module.prop" | head -n 1)"
+for tool in install zip; do
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "package: $tool is required" >&2
+    exit 1
+  fi
+done
+
+# Fail before the (slow) WebUI build if a runtime file is not valid LF.
+# CRLF ships a module that cannot parse on the device; see .gitattributes.
+check_lf() {
+  if LC_ALL=C grep -q "$(printf '\r')" "$1"; then
+    echo "package: CRLF line ending in ${1#"$ROOT_DIR"/}" >&2
+    echo "package: run 'git add --renormalize .' and re-checkout" >&2
+    exit 1
+  fi
+}
+
+for f in \
+  module.prop \
+  post-fs-data.sh \
+  service.sh \
+  common/ttnet_patch.sh \
+  common/remove_global_drop.awk \
+  common/count_global_drop.awk \
+  scripts/status.sh \
+  scripts/repair.sh
+do
+  if [ -f "$ROOT_DIR/$f" ]; then
+    check_lf "$ROOT_DIR/$f"
+  fi
+done
+
+# Strip a stray CR so a CRLF checkout cannot leak it into the zip name.
+version="$(sed -n 's/^version=//p' "$ROOT_DIR/module.prop" | head -n 1 | tr -d '\r')"
+version_code="$(sed -n 's/^versionCode=//p' "$ROOT_DIR/module.prop" | head -n 1 | tr -d '\r')"
+module_id="$(sed -n 's/^id=//p' "$ROOT_DIR/module.prop" | head -n 1 | tr -d '\r')"
 
 if [ -z "$module_id" ]; then
   echo "package: module id is missing in module.prop" >&2
@@ -23,6 +62,13 @@ if [ -z "$version" ]; then
   echo "package: version is missing in module.prop" >&2
   exit 1
 fi
+
+case "$version_code" in
+  ''|*[!0-9]*)
+    echo "package: versionCode must be a positive integer, got '$version_code'" >&2
+    exit 1
+    ;;
+esac
 
 mkdir -p "$DIST_DIR"
 
@@ -35,6 +81,9 @@ if [ -f "$ROOT_DIR/package.json" ]; then
     cd "$ROOT_DIR"
     pnpm build
   )
+elif [ -f "$ROOT_DIR/webroot/index.html" ]; then
+  echo "package: package.json is missing but webroot/ exists; refusing to ship unverified WebUI assets" >&2
+  exit 1
 fi
 
 install -m 0644 "$ROOT_DIR/module.prop" "$STAGING_DIR/module.prop"
@@ -83,8 +132,13 @@ install -m 0755 "$ROOT_DIR/scripts/test_patch_patterns.sh" \
   "$STAGING_DIR/scripts/test_patch_patterns.sh"
 install -m 0755 "$ROOT_DIR/scripts/ttnet_dispatch_model.py" "$STAGING_DIR/scripts/ttnet_dispatch_model.py"
 
-output="$DIST_DIR/$module_id-$version.zip"
-tmp_output="$DIST_DIR/.$module_id-$version.zip.tmp"
+output="$DIST_DIR/$module_id-$version-$version_code.zip"
+tmp_output="$DIST_DIR/.$module_id-$version-$version_code.zip.tmp"
+
+if [ -e "$output" ]; then
+  echo "package: refusing to overwrite existing artifact $output" >&2
+  exit 1
+fi
 
 rm -f "$tmp_output"
 (
