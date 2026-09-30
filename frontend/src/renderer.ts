@@ -8,6 +8,7 @@ import {
   statusSubtitle,
   statusTitle,
 } from "./diagnostics";
+import { redactDiagnostics } from "./redact";
 import type {
   DiagnosticsData,
   LogTabName,
@@ -246,7 +247,8 @@ export class DiagnosticsRenderer {
         refreshed_at: this.lastClientRefreshAt
           ? this.lastClientRefreshAt.toISOString()
           : null,
-        diagnostics: this.lastDiagnostics,
+        note: "Copied by Fuck TTNet WebUI. Known identity values are redacted and unknown fields are dropped; review before sharing.",
+        diagnostics: redactDiagnostics(this.lastDiagnostics),
       },
       null,
       2,

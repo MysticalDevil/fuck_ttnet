@@ -2,3 +2,10 @@ dist/
 .rumdl_cache/
 __pycache__/
 *.py[cod]
+
+# Frontend build dependencies. Without this a fresh `pnpm install` makes
+# `git status` show tens of thousands of untracked entries, and `git add -A`
+# would commit the whole dependency tree.
+node_modules/
+.vite/
+*.tsbuildinfo

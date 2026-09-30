@@ -1,0 +1,56 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify LF line endings
+        # The module ships shell scripts into a KernelSU zip. A trailing CR
+        # makes them unparseable on Android's mksh, and it also makes every
+        # scripts/test_*.sh exit with rc=2 before it asserts anything.
+        run: |
+          if git ls-files -z | xargs -0 grep -lI $'\r' 2>/dev/null | grep -q .; then
+            echo "CRLF line endings found in:"
+            git ls-files -z | xargs -0 grep -lI $'\r' 2>/dev/null
+            exit 1
+          fi
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Python self-test
+        run: python3 scripts/ttnet_dispatch_model.py --self-test
+
+      - name: Build WebUI
+        run: pnpm build
+
+      - name: Check webroot is up to date
+        # pnpm build writes into webroot/. If the committed bundle does not
+        # match the sources, the module would ship a stale WebUI.
+        run: |
+          if ! git diff --quiet -- webroot/; then
+            echo "webroot/ is out of date; run 'pnpm build' and commit the result"
+            git diff --stat -- webroot/
+            exit 1
+          fi

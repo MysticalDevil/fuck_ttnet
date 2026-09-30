@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "sh scripts/test_patch_patterns.sh && sh scripts/test_status_diagnostics.sh && sh scripts/test_status_network_validation.sh && sh scripts/test_status_redaction.sh && sh scripts/test_diagnose_no_network.sh && node --test frontend/src/serial-task-queue.test.ts frontend/src/redact.test.ts"
   },
   "devDependencies": {
     "@types/node": "^24.3.0",

@@ -189,33 +189,38 @@ print_field() {
 sanitize_log_block() {
   text="$1"
 
-  for key in \
-    device_id \
-    iid \
-    install_id \
-    openudid \
-    cdid \
-    sessionid \
-    sid_tt \
-    sec_user_id \
-    token \
-    msToken \
-    odin_tt \
-    passport_csrf_token \
-    passport_csrf_token_default
-  do
-    text="$(
-      printf '%s\n' "$text" |
-        sed \
-          -e "s/\\([?&]$key=\\)[^&\"[:space:]]*/\\1$REDACTED_VALUE/g" \
-          -e "s/\\(\"$key\":\"\\)[^\"]*/\\1$REDACTED_VALUE/g"
-    )"
-  done
+  # Keys that carry account, device or session identity. Keep this list in
+  # sync with REDACTION_KEYS in frontend/src/diagnostics.ts.
+  redaction_keys='device_id|iid|install_id|openudid|cdid|sessionid|sid_tt|sec_user_id|sec_uid|token|msToken|ms_token|odin_tt|passport_csrf_token|passport_csrf_token_default|x-tt-token|x-gorgon|tt-token'
 
-  printf '%s\n' "$text" |
-    sed \
-      -e 's/\([Aa]uthorization:[[:space:]]*\).*/\1[REDACTED]/' \
-      -e 's/\([Cc]ookie:[[:space:]]*\).*/\1[REDACTED]/'
+  # The previous patterns only matched `?key=` / `&key=` and `"key":"`.
+  # Real-world values that slipped through unbounded and unredacted:
+  #
+  #   CommonParams{device_id=7123456789, iid=9876543210}   (bare `key=`)
+  #   x-tt-token: abcSECRET123                             (header form)
+  #   device_id&#*7451564133168743978@$*store_region&#*us  (TNC separator)
+  #   "sec_uid":"MS4wLjABAAAA..."                          (JSON, different key)
+  #
+  # Match any of those, and also redact the whole Authorization/Cookie line
+  # rather than only the first value on it.
+  #
+  # This uses ERE (sed -E). Note that BRE `\|` alternation is NOT supported by
+  # the toybox sed shipped on Android 14+ (verified: it silently leaves the
+  # pattern unexpanded), and a bracket expression cannot express alternation
+  # anyway - `[device_id|iid]` is a character class, not a group, and toybox
+  # additionally rejects it with "invalid character range".
+  text="$(
+    printf '%s\n' "$text" |
+      sed -E \
+        -e "s/(\"($redaction_keys)\"[[:space:]]*:[[:space:]]*\")[^\"]*/\\1$REDACTED_VALUE/g" \
+        -e "s/($redaction_keys)([[:space:]]*:[[:space:]]*)[^[:space:]]*/\\1\\2$REDACTED_VALUE/g" \
+        -e "s/($redaction_keys)([[:space:]]*=[[:space:]]*)[^&\"[:space:]@\$]*/\\1\\2$REDACTED_VALUE/g" \
+        -e "s/($redaction_keys)(&#\*)[^@]*/\\1\\2$REDACTED_VALUE/g" \
+        -e "s/([Aa]uthorization[[:space:]]*:[[:space:]]*).*/\\1$REDACTED_VALUE/" \
+        -e "s/([Cc]ookie[[:space:]]*:[[:space:]]*).*/\\1$REDACTED_VALUE/"
+  )"
+
+  printf '%s\n' "$text"
 }
 
 tiktok_pid="$(pid_for_tiktok)"
